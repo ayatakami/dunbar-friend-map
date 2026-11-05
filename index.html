@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 友達の情報が端末の外に出ないよう、外部への通信をブラウザの機能で禁止する -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' file:; style-src 'self' file:; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>ダンバー友達マップ</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23fbecdd'/%3E%3Ccircle cx='16' cy='16' r='10' fill='%23f6d2b5'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23a8481f'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <main class="map-pane">
+      <svg id="map" viewBox="-500 -500 1000 1000" aria-label="友達の同心円マップ"></svg>
+      <p id="map-hint" class="map-hint" hidden>友達を追加して、円の中へドラッグしましょう。内側ほど親しい人です。</p>
+    </main>
+
+    <aside class="sidebar">
+      <header class="brand">
+        <h1>ダンバー友達マップ</h1>
+        <p>人が安定した関係を保てるのは約150人まで、というダンバー数をもとに、人間関係を円で眺めます。</p>
+      </header>
+
+      <div class="data-actions">
+        <button id="csv-export" type="button" class="secondary">CSVに書き出す</button>
+        <button id="csv-import" type="button" class="secondary">CSVを読み込む</button>
+        <input id="csv-file" type="file" accept=".csv,text/csv" aria-label="読み込むCSVファイル" hidden>
+        <p id="csv-status" class="muted" role="status"></p>
+      </div>
+
+      <div id="notice" class="notice" role="alert" hidden></div>
+
+      <div id="main-panel" class="panel">
+        <form id="add-form" class="section" autocomplete="off">
+          <h2>友達を追加</h2>
+          <div class="add-row">
+            <input id="add-name" type="text" placeholder="名前" aria-label="名前" maxlength="40" required>
+            <select id="add-layer" aria-label="層"></select>
+            <button type="submit" class="primary">追加</button>
+          </div>
+          <details class="add-more">
+            <summary>タグ・最終連絡日・メモ</summary>
+            <label class="field">タグ(カンマ区切り)
+              <input id="add-tags" type="text" placeholder="大学、職場">
+            </label>
+            <div id="add-tag-suggest" class="tag-suggest"></div>
+            <label class="field">最終連絡日
+              <input id="add-last" type="date">
+            </label>
+            <label class="field">メモ
+              <textarea id="add-memo" rows="2"></textarea>
+            </label>
+          </details>
+        </form>
+
+        <section class="section">
+          <h2>層ごとの人数</h2>
+          <ul id="layer-counts" class="counts"></ul>
+        </section>
+
+        <section id="tag-section" class="section" hidden>
+          <h2>タグで絞り込む</h2>
+          <div id="tag-filter" class="chips"></div>
+        </section>
+
+        <section id="unplaced-section" class="section">
+          <h2>未配置</h2>
+          <p id="unplaced-empty" class="muted">未配置の人はいません。</p>
+          <ul id="unplaced-list" class="unplaced"></ul>
+        </section>
+
+        <section id="stale-section" class="section" hidden>
+          <h2>疎遠になりかけている人 <span id="stale-count" class="badge"></span></h2>
+          <ul id="stale-list" class="rows"></ul>
+        </section>
+      </div>
+
+      <section id="detail" class="panel detail" aria-label="友達の詳細" hidden>
+        <button id="detail-close" type="button" class="ghost">← 一覧に戻る</button>
+        <div class="detail-head">
+          <span id="detail-avatar" class="avatar"></span>
+          <p id="detail-status" class="muted"></p>
+        </div>
+        <label class="field">名前
+          <input id="detail-name" type="text" maxlength="40">
+        </label>
+        <label class="field">層
+          <select id="detail-layer"></select>
+        </label>
+        <label class="field">タグ(カンマ区切り)
+          <input id="detail-tags" type="text">
+        </label>
+        <div id="detail-tag-suggest" class="tag-suggest"></div>
+        <label class="field">最終連絡日
+          <input id="detail-last" type="date">
+        </label>
+        <button id="detail-contacted" type="button" class="secondary">今日連絡した</button>
+        <label class="field">メモ
+          <textarea id="detail-memo" rows="4"></textarea>
+        </label>
+        <div class="danger-zone">
+          <button id="detail-delete" type="button" class="ghost danger">この人を削除</button>
+          <div id="detail-delete-confirm" class="delete-confirm" hidden>
+            <span>本当に削除しますか?</span>
+            <button id="detail-delete-yes" type="button" class="danger-solid">削除する</button>
+            <button id="detail-delete-no" type="button" class="ghost">やめる</button>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <dialog id="csv-dialog" class="dialog" aria-labelledby="csv-dialog-title">
+    <h2 id="csv-dialog-title">CSVを読み込む</h2>
+    <p id="csv-summary"></p>
+    <div id="csv-errors" class="csv-errors" hidden>
+      <p id="csv-errors-title"></p>
+      <ul id="csv-error-list"></ul>
+      <p class="csv-errors-hint">層は 親友 / 親しい仲間 / 友人 / 友達・知人 / 未配置 のいずれか、最終連絡日は 2026-11-05 の形式で書いてください。</p>
+    </div>
+    <p id="csv-ignored" class="muted" hidden></p>
+    <fieldset id="csv-modes" class="csv-modes">
+      <legend>取り込み方</legend>
+      <label class="csv-mode">
+        <input type="radio" name="csv-mode" value="merge" checked>
+        <span>
+          <strong>追加・更新</strong>
+          <small id="csv-merge-note"></small>
+        </span>
+      </label>
+      <label id="csv-replace-option" class="csv-mode">
+        <input type="radio" name="csv-mode" value="replace">
+        <span>
+          <strong>すべて置き換える</strong>
+          <small id="csv-replace-note"></small>
+        </span>
+      </label>
+    </fieldset>
+    <div class="dialog-actions">
+      <button id="csv-cancel" type="button" class="secondary">キャンセル</button>
+      <button id="csv-apply" type="button" class="primary">取り込む</button>
+    </div>
+  </dialog>
+
+  <script src="js/logic.js"></script>
+  <script src="js/csv.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/csv-panel.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

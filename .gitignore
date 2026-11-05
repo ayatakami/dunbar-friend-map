@@ -1,0 +1,6 @@
+# 書き出したCSVには友達の個人情報が入るのでコミットしない
+*.csv
+
+.claude/settings.local.json
+desktop.ini
+Thumbs.db
