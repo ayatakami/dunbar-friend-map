@@ -8,7 +8,7 @@
   const VIEW_HALF = 500;
   const SELF_RADIUS = 38;
   const MIN_LABEL_PX = 5;
-  const PILL_HEIGHT = 15;
+  const PILL_HEIGHT = 18;
   const PILL_PADDING = 9;
   const TOOLTIP_HEIGHT = 24;
   const TOOLTIP_PADDING = 10;
@@ -86,7 +86,7 @@
 
     // スマホのように小さく表示され、読めない大きさになる名前は出さない。
     function labelShown(pos) {
-      return pos.labelMaxEm > 0 && pos.fontSize / unitsPerPixel >= MIN_LABEL_PX;
+      return pos.fontSize / unitsPerPixel >= MIN_LABEL_PX;
     }
 
     function sizeBackground(rect, text, height, padding) {
@@ -146,7 +146,7 @@
       node.staleRing.setAttribute('display', stale ? 'inline' : 'none');
       node.selectRing.setAttribute('r', pos.r + (stale ? 9 : 5));
 
-      node.label.textContent = labelShown(pos) ? logic.fitName(friend.name, pos.labelMaxEm) : '';
+      node.label.textContent = labelShown(pos) ? logic.fitName(friend.name) : '';
       node.label.setAttribute('y', pos.labelY);
       node.label.setAttribute('font-size', pos.fontSize);
     }

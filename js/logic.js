@@ -3,13 +3,12 @@
   'use strict';
 
   // limit は内側の層を含む累計の上限、staleDays は疎遠とみなす日数の目安。
-  // inner 以降は viewBox(-500〜500)上の寸法。上限の人数でも名前が重ならない大きさにしている。
-  // outerInset は外周に残す余白で、名前と、円の境界にある層のラベルの分。
+  // inner 以降は viewBox(-500〜500)上の円とアイコンの寸法。
   const LAYERS = [
-    { id: 1, name: '親友', limit: 5, staleDays: 7, inner: 46, outer: 120, nodeRadius: 19, fontSize: 15, arcSpacing: 72, rowSpacing: 60, outerInset: 27 },
-    { id: 2, name: '親しい仲間', limit: 15, staleDays: 30, inner: 120, outer: 190, nodeRadius: 17, fontSize: 14, arcSpacing: 72, rowSpacing: 60, outerInset: 19 },
-    { id: 3, name: '友人', limit: 50, staleDays: 180, inner: 190, outer: 316, nodeRadius: 14, fontSize: 14, arcSpacing: 60, rowSpacing: 44, outerInset: 28 },
-    { id: 4, name: '友達・知人', limit: 150, staleDays: 365, inner: 316, outer: 490, nodeRadius: 14, fontSize: 13, arcSpacing: 56, rowSpacing: 42, outerInset: 28 },
+    { id: 1, name: '親友', limit: 5, staleDays: 7, inner: 50, outer: 125, nodeRadius: 22, nodeGap: 36 },
+    { id: 2, name: '親しい仲間', limit: 15, staleDays: 30, inner: 125, outer: 205, nodeRadius: 20, nodeGap: 40 },
+    { id: 3, name: '友人', limit: 50, staleDays: 180, inner: 205, outer: 320, nodeRadius: 17, nodeGap: 5 },
+    { id: 4, name: '友達・知人', limit: 150, staleDays: 365, inner: 320, outer: 490, nodeRadius: 15, nodeGap: 5 },
   ];
 
   const TAG_COLORS = [
@@ -18,12 +17,11 @@
   ];
   const NEUTRAL_COLOR = '#6b7280';
 
-  const ROW_INSET_INNER = 8; // 円の境界にある層のラベルにアイコンが隠れない分
+  const ROW_INSET_INNER = 4;
+  const ROW_INSET_OUTER = 12;
   const NODE_SCALES = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3];
-  const LABEL_GAP = 6.5; // 疎遠の輪の外側に名前を出す
-  const LABEL_MARGIN = 2;
-  const ICON_MARGIN = 2;
-  const LABEL_MIN_EM = 2;
+  const LABEL_FONT_SIZE = 16;
+  const LABEL_OFFSET = 15;
   const LABEL_MAX_EM = 6;
   const MS_PER_DAY = 86400000;
 
@@ -100,9 +98,15 @@
     return layer ? layer.id : null;
   }
 
+  function rowBounds(layer, nodeRadius) {
+    return {
+      lo: layer.inner + nodeRadius + ROW_INSET_INNER,
+      hi: layer.outer - nodeRadius - ROW_INSET_OUTER,
+    };
+  }
+
   function rowRadii(lo, hi, rowCount) {
-    if (rowCount === 1) return [(lo + hi) / 2];
-    return Array.from({ length: rowCount }, (_, j) => lo + ((hi - lo) * j) / (rowCount - 1));
+    return Array.from({ length: rowCount }, (_, j) => lo + ((hi - lo) * (j + 0.5)) / rowCount);
   }
 
   // n人が収まる最小の行数と、できるだけ大きいアイコンサイズの組を探す。
@@ -111,13 +115,12 @@
     let fallback = null;
     for (const scale of NODE_SCALES) {
       const nodeRadius = layer.nodeRadius * scale;
-      const arcSpacing = layer.arcSpacing * scale;
-      const lo = layer.inner + nodeRadius + ROW_INSET_INNER;
-      const hi = layer.outer - nodeRadius - layer.outerInset * scale;
-      const maxRows = Math.floor((hi - lo) / (layer.rowSpacing * scale)) + 1;
+      const spacing = (layer.nodeRadius * 2 + layer.nodeGap) * scale;
+      const { lo, hi } = rowBounds(layer, nodeRadius);
+      const maxRows = Math.max(1, Math.floor((hi - lo) / spacing));
       for (let rowCount = 1; rowCount <= maxRows; rowCount++) {
         const radii = rowRadii(lo, hi, rowCount);
-        const capacities = radii.map((r) => Math.floor((2 * Math.PI * r) / arcSpacing));
+        const capacities = radii.map((r) => Math.floor((2 * Math.PI * r) / spacing));
         const total = capacities.reduce((sum, c) => sum + c, 0);
         fallback = { scale, nodeRadius, radii, capacities, total };
         if (total >= n) return fallback;
@@ -175,54 +178,14 @@
       const angle = -Math.PI / 2 + (2 * Math.PI * (assigned[row] + 0.5)) / counts[row];
       assigned[row]++;
       const y = fit.radii[row] * Math.sin(angle);
-      const fontSize = layer.fontSize * fit.scale;
       result[friend.id] = {
         x: fit.radii[row] * Math.cos(angle),
         y,
         r: fit.nodeRadius,
-        fontSize,
+        fontSize: LABEL_FONT_SIZE * fit.scale,
         // 名前は外側に向けて出し、内側の円のラベルや「自分」に重ならないようにする。
-        labelY: (fit.nodeRadius + LABEL_GAP + fontSize / 2) * (y < 0 ? -1 : 1),
-        labelMaxEm: 0,
+        labelY: (fit.nodeRadius + LABEL_OFFSET * fit.scale) * (y < 0 ? -1 : 1),
       };
-    });
-  }
-
-  // 名前の幅を、左右にいる人のアイコンと名前にぶつからない分だけに制限する。
-  // 名前同士は間を半分ずつ使う。名前の中身によらないので、隣の人を編集しても省略の仕方は変わらない。
-  function assignLabelWidths(positions) {
-    const spans = positions.map((p) => {
-      const center = p.y + p.labelY;
-      return {
-        top: center - p.fontSize / 2,
-        bottom: center + p.fontSize / 2,
-        half: (LABEL_MAX_EM * p.fontSize) / 2,
-      };
-    });
-
-    const limitByIcon = (span, icon, dx) => {
-      const dy = Math.max(span.top - icon.y, icon.y - span.bottom, 0);
-      const radius = icon.r + ICON_MARGIN;
-      if (dy < radius) span.half = Math.min(span.half, dx - Math.sqrt(radius * radius - dy * dy) - LABEL_MARGIN);
-    };
-
-    positions.forEach((a, i) => {
-      for (let j = i + 1; j < positions.length; j++) {
-        const b = positions[j];
-        const dx = Math.abs(a.x - b.x);
-        limitByIcon(spans[i], b, dx);
-        limitByIcon(spans[j], a, dx);
-        if (spans[i].top < spans[j].bottom && spans[j].top < spans[i].bottom) {
-          const half = (dx - LABEL_MARGIN) / 2;
-          spans[i].half = Math.min(spans[i].half, half);
-          spans[j].half = Math.min(spans[j].half, half);
-        }
-      }
-    });
-
-    positions.forEach((p, i) => {
-      const em = (spans[i].half * 2) / p.fontSize;
-      p.labelMaxEm = em >= LABEL_MIN_EM ? em : 0;
     });
   }
 
@@ -231,7 +194,6 @@
     LAYERS.forEach((layer) => {
       layoutLayer(layer, friends.filter((f) => f.layer === layer.id), result);
     });
-    assignLabelWidths(Object.values(result));
     return result;
   }
 
@@ -272,7 +234,7 @@
     return char.codePointAt(0) < 0x2e80 ? 0.6 : 1;
   }
 
-  function fitName(name, maxEm) {
+  function fitName(name, maxEm = LABEL_MAX_EM) {
     const chars = Array.from(name);
     if (chars.reduce((sum, c) => sum + charWidth(c), 0) <= maxEm) return name;
     let used = 1; // 「…」の分

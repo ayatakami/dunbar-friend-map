@@ -173,89 +173,28 @@ test('上限を大幅に超えても壊れない', () => {
   });
 });
 
-// 名前の表示範囲。文字幅は実際に切り詰めた名前で計算する。
-function labelBox(friend, pos) {
-  const text = logic.fitName(friend.name, pos.labelMaxEm);
-  const width = Array.from(text).reduce((sum, c) => sum + (c.codePointAt(0) < 0x2e80 ? 0.6 : 1), 0) * pos.fontSize;
-  const cy = pos.y + pos.labelY;
-  return { left: pos.x - width / 2, right: pos.x + width / 2, top: cy - pos.fontSize / 2, bottom: cy + pos.fontSize / 2 };
-}
-
-function boxesOverlap(a, b) {
-  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-}
-
-function boxHitsCircle(box, pos) {
-  const dx = pos.x - Math.max(box.left, Math.min(pos.x, box.right));
-  const dy = pos.y - Math.max(box.top, Math.min(pos.y, box.bottom));
-  return Math.hypot(dx, dy) < pos.r;
-}
-
-function assertLabelsClear(friends, layout) {
-  friends.forEach((a, i) => {
-    assert.ok(layout[a.id].labelMaxEm > 0, `${a.id} の名前が出ない`);
-    const box = labelBox(a, layout[a.id]);
-    friends.forEach((b, j) => {
-      if (i === j) return;
-      assert.ok(!boxHitsCircle(box, layout[b.id]), `${a.id} の名前が ${b.id} のアイコンに重なっている`);
-      if (i < j) assert.ok(!boxesOverlap(box, labelBox(b, layout[b.id])), `${a.id} と ${b.id} の名前が重なっている`);
-    });
-  });
-}
-
-function withName(friends, name) {
-  return friends.map((f) => ({ ...f, name }));
-}
-
-function fullHouse() {
-  return [...many(5, 1), ...many(10, 2, 100), ...many(35, 3, 200), ...many(100, 4, 300)];
-}
-
-['佐藤花子', '佐々木拓海', '寿限無寿限無五劫の擦り切れ', 'Alexander Smith'].forEach((name) => {
-  test(`150人が全員「${name}」でも名前が重ならない`, () => {
-    const friends = withName(fullHouse(), name);
-    assertLabelsClear(friends, logic.computeLayout(friends));
-  });
-});
-
-test('上限までのどの人数でも名前が重ならない', () => {
-  logic.LAYERS.forEach((layer, index) => {
-    const previous = index === 0 ? 0 : logic.LAYERS[index - 1].limit;
-    for (let n = 1; n <= layer.limit - previous; n++) {
-      const friends = withName(many(n, layer.id), '佐々木拓海');
-      assertLabelsClear(friends, logic.computeLayout(friends));
-    }
-  });
-});
-
-test('各層の人数を混ぜても、全員の名前が出て重ならない', () => {
-  for (const a of [0, 1, 3, 5]) {
-    for (const b of [0, 3, 7, 10]) {
-      for (const c of [0, 5, 15, 25, 35]) {
-        for (const d of [0, 10, 25, 50, 75, 100]) {
-          const friends = withName([...many(a, 1), ...many(b, 2, 100), ...many(c, 3, 200), ...many(d, 4, 300)], '佐々木拓海');
-          assertLabelsClear(friends, logic.computeLayout(friends));
-        }
-      }
-    }
-  }
-});
-
-test('上限の人数でも、4文字の名前は省略されない', () => {
-  const friends = withName(fullHouse(), '佐藤花子');
+test('上限の人数でも、アイコンと名前は元の大きさのまま', () => {
+  const friends = [...many(5, 1), ...many(10, 2, 100), ...many(35, 3, 200), ...many(100, 4, 300)];
   const layout = logic.computeLayout(friends);
-  friends.forEach((f) => assert.equal(logic.fitName(f.name, layout[f.id].labelMaxEm), '佐藤花子', f.id));
+  friends.forEach((f) => {
+    assert.equal(layout[f.id].r, logic.layerById(f.layer).nodeRadius, f.id);
+    assert.equal(layout[f.id].fontSize, 16, f.id);
+  });
 });
 
-test('人数が少なければ、長い名前も省略せずに出す', () => {
-  const friends = withName(many(5, 4), '佐々木拓海');
+test('名前は円の外側に向けて出す', () => {
+  const friends = many(35, 3);
   const layout = logic.computeLayout(friends);
-  friends.forEach((f) => assert.equal(logic.fitName(f.name, layout[f.id].labelMaxEm), '佐々木拓海'));
+  friends.forEach((f) => {
+    const { y, labelY } = layout[f.id];
+    assert.ok(Math.abs(y + labelY) > Math.abs(y), `${f.id} の名前が内側に出ている`);
+  });
 });
 
-test('上限を大幅に超えて名前が入らなければ、名前を出さない', () => {
-  const layout = logic.computeLayout(many(5000, 4));
-  Object.values(layout).forEach((p) => assert.equal(p.labelMaxEm, 0));
+test('上限を超えてアイコンが縮むと、名前も同じ割合で縮む', () => {
+  const { r, fontSize } = logic.computeLayout(many(12, 1))['0'];
+  assert.ok(r < logic.LAYERS[0].nodeRadius);
+  assert.equal(fontSize / 16, r / logic.LAYERS[0].nodeRadius);
 });
 
 test('未配置の人はマップに含めない', () => {
@@ -311,6 +250,7 @@ test('長い名前は、幅に収まるように省略する', () => {
   assert.equal(logic.fitName('田中太郎', 3.5), '田中…');
   assert.equal(logic.fitName('寿限無寿限無五劫', 6), '寿限無寿限…');
   assert.equal(logic.fitName('😀😀😀😀', 3), '😀😀…');
+  assert.equal(logic.fitName('寿限無寿限無五劫'), '寿限無寿限…');
 });
 
 test('英数字は全角より細いものとして数える', () => {
